@@ -1,0 +1,50 @@
+trigger:
+  branches:
+    include:
+      - main
+      - develop
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+variables:
+  GEMINI_API_KEY: $(GEMINI_API_KEY)
+  SNYK_TOKEN: $(SNYK_TOKEN)
+
+steps:
+  - task: UsePythonVersion@0
+    inputs:
+      versionSpec: '3.10'
+      addToPath: true
+
+  - script: |
+      python -m pip install --upgrade pip
+      pip install -r requirements.txt
+    displayName: 'Install Python dependencies'
+
+  - script: |
+      curl https://static.snyk.io/cli/latest/snyk-linux -o snyk
+      chmod +x snyk
+      sudo mv snyk /usr/local/bin/
+    displayName: 'Install Snyk CLI'
+
+  - script: |
+      snyk auth $(SNYK_TOKEN)
+      snyk test --docker <your-image-name> --file=Dockerfile --json > scan.json || true
+    env:
+      SNYK_TOKEN: $(SNYK_TOKEN)
+    displayName: 'Run Snyk Scan'
+
+  - script: |
+      echo "$GEMINI_API_KEY" > gemini.key
+      export GEMINI_API_KEY=$(cat gemini.key)
+      python agentic_remediator.py
+    env:
+      GEMINI_API_KEY: $(GEMINI_API_KEY)
+    displayName: 'Run Gemini Agentic Remediator'
+
+  - task: PublishBuildArtifacts@1
+    inputs:
+      PathtoPublish: 'Dockerfile.fixed'
+      ArtifactName: 'fixed-dockerfile'
+      publishLocation: 'Container'
